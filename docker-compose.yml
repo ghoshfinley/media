@@ -7,16 +7,26 @@ services:
     devices:
       - /dev/net/tun:/dev/net/tun
     ports:
-      - "8090:8080"       # qBittorrent WebUI (routed through gluetun)
+      - "8090:8080"       # qBittorrent WebUI
       - "6881:6881"       # qBittorrent torrent port TCP
       - "6881:6881/udp"   # qBittorrent torrent port UDP
+      - "9696:9696"       # Prowlarr
+      - "8191:8191"       # FlareSolverr
+      - "8989:8989"       # Sonarr
+      - "7878:7878"       # Radarr
     environment:
       - VPN_SERVICE_PROVIDER=protonvpn
       - VPN_TYPE=openvpn
       - OPENVPN_USER=${OPENVPN_USER}
       - OPENVPN_PASSWORD=${OPENVPN_PASSWORD}
       - SERVER_COUNTRIES=${VPN_SERVER_COUNTRIES}
+      - BLOCK_IPV6=on
+      - UPDATER_PERIOD=24h
+      - PROTONVPN_EMAIL=${PROTON_EMAIL}
+      - PROTONVPN_PASSWORD=${PROTON_PASSWORD}
       - TZ=${TZ}
+    volumes:
+      - ./config/gluetun:/gluetun
     restart: unless-stopped
 
   qbittorrent:
@@ -30,27 +40,42 @@ services:
       - PGID=${PGID}
       - TZ=${TZ}
       - WEBUI_PORT=8080
+      - QBT_PREFERENCES__WebUI__HostHeaderValidation=false
     volumes:
       - ./config/qbittorrent:/config
       - ./media/downloads:/downloads
     restart: unless-stopped
 
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
+    environment:
+      - TZ=${TZ}
+    restart: unless-stopped
+
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:latest
     container_name: prowlarr
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
     volumes:
       - ./config/prowlarr:/config
-    ports:
-      - "9696:9696"
     restart: unless-stopped
 
   sonarr:
     image: lscr.io/linuxserver/sonarr:latest
     container_name: sonarr
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -59,13 +84,14 @@ services:
       - ./config/sonarr:/config
       - ./media/tv:/tv
       - ./media/downloads:/downloads
-    ports:
-      - "8989:8989"
     restart: unless-stopped
 
   radarr:
     image: lscr.io/linuxserver/radarr:latest
     container_name: radarr
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -74,8 +100,23 @@ services:
       - ./config/radarr:/config
       - ./media/movies:/movies
       - ./media/downloads:/downloads
+    restart: unless-stopped
+
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest
+    container_name: homepage
     ports:
-      - "7878:7878"
+      - "3000:3000"
+    volumes:
+      - ./config/homepage:/app/config
+    environment:
+      - TZ=${TZ}
+      - HOMEPAGE_VAR_JELLYFIN_API_KEY=${JELLYFIN_API_KEY}
+      - HOMEPAGE_VAR_SEERR_API_KEY=${SEERR_API_KEY}
+      - HOMEPAGE_VAR_QBITTORRENT_PASSWORD=${QBITTORRENT_PASSWORD}
+      - HOMEPAGE_VAR_SONARR_API_KEY=${SONARR_API_KEY}
+      - HOMEPAGE_VAR_RADARR_API_KEY=${RADARR_API_KEY}
+      - HOMEPAGE_VAR_PROWLARR_API_KEY=${PROWLARR_API_KEY}
     restart: unless-stopped
 
   jellyfin:
