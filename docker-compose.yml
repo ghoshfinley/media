@@ -12,6 +12,7 @@ services:
       - "6881:6881/udp"   # qBittorrent torrent port UDP
       - "9696:9696"       # Prowlarr
       - "8191:8191"       # FlareSolverr
+      - "8000:8000"       # Gluetun HTTP API (for Homepage widget)
       - "8989:8989"       # Sonarr
       - "7878:7878"       # Radarr
     environment:
@@ -22,11 +23,18 @@ services:
       - SERVER_COUNTRIES=${VPN_SERVER_COUNTRIES}
       - BLOCK_IPV6=on
       - UPDATER_PERIOD=24h
+      - HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE={"auth":"none"}
       - PROTONVPN_EMAIL=${PROTON_EMAIL}
       - PROTONVPN_PASSWORD=${PROTON_PASSWORD}
       - TZ=${TZ}
     volumes:
       - ./config/gluetun:/gluetun
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9999 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
 
   qbittorrent:
@@ -34,7 +42,8 @@ services:
     container_name: qbittorrent
     network_mode: "service:gluetun"
     depends_on:
-      - gluetun
+      gluetun:
+        condition: service_healthy
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -51,7 +60,8 @@ services:
     container_name: flaresolverr
     network_mode: "service:gluetun"
     depends_on:
-      - gluetun
+      gluetun:
+        condition: service_healthy
     environment:
       - TZ=${TZ}
     restart: unless-stopped
@@ -61,7 +71,8 @@ services:
     container_name: prowlarr
     network_mode: "service:gluetun"
     depends_on:
-      - gluetun
+      gluetun:
+        condition: service_healthy
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -75,7 +86,8 @@ services:
     container_name: sonarr
     network_mode: "service:gluetun"
     depends_on:
-      - gluetun
+      gluetun:
+        condition: service_healthy
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -91,7 +103,8 @@ services:
     container_name: radarr
     network_mode: "service:gluetun"
     depends_on:
-      - gluetun
+      gluetun:
+        condition: service_healthy
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -109,6 +122,7 @@ services:
       - "3000:3000"
     volumes:
       - ./config/homepage:/app/config
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - TZ=${TZ}
       - HOMEPAGE_VAR_JELLYFIN_API_KEY=${JELLYFIN_API_KEY}
