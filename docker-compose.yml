@@ -1,11 +1,18 @@
+networks:
+  media:
+    driver: bridge
+  # VPN-isolated services use network_mode: "service:vpn" instead of this network
+
 services:
-  gluetun:
+  vpn:
     image: ghcr.io/qdm12/gluetun:latest
-    container_name: gluetun
+    container_name: vpn
     cap_add:
       - NET_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
+    networks:
+      - media
     ports:
       - "8090:8080"       # qBittorrent WebUI
       - "6881:6881"       # qBittorrent torrent port TCP
@@ -17,15 +24,13 @@ services:
       - "7878:7878"       # Radarr
     environment:
       - VPN_SERVICE_PROVIDER=protonvpn
-      - VPN_TYPE=openvpn
-      - OPENVPN_USER=${OPENVPN_USER}
-      - OPENVPN_PASSWORD=${OPENVPN_PASSWORD}
+      - VPN_TYPE=wireguard
+      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
+      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES}
       - SERVER_COUNTRIES=${VPN_SERVER_COUNTRIES}
       - BLOCK_IPV6=on
       - UPDATER_PERIOD=24h
       - HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE={"auth":"none"}
-      - PROTONVPN_EMAIL=${PROTON_EMAIL}
-      - PROTONVPN_PASSWORD=${PROTON_PASSWORD}
       - TZ=${TZ}
     volumes:
       - ./config/gluetun:/gluetun
@@ -37,12 +42,16 @@ services:
       start_period: 60s
     restart: unless-stopped
 
+  # --- VPN-isolated services ---
+  # These share gluetun's network namespace — all traffic exits via the VPN tunnel.
+  # They cannot be placed on named networks; ports are exposed via gluetun above.
+
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
-    network_mode: "service:gluetun"
+    network_mode: "service:vpn"
     depends_on:
-      gluetun:
+      vpn:
         condition: service_healthy
     environment:
       - PUID=${PUID}
@@ -50,6 +59,7 @@ services:
       - TZ=${TZ}
       - WEBUI_PORT=8080
       - QBT_PREFERENCES__WebUI__HostHeaderValidation=false
+      - QBT_PREFERENCES__WebUI__CSRFProtection=false
     volumes:
       - ./config/qbittorrent:/config
       - ./media/downloads:/downloads
@@ -58,9 +68,9 @@ services:
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
     container_name: flaresolverr
-    network_mode: "service:gluetun"
+    network_mode: "service:vpn"
     depends_on:
-      gluetun:
+      vpn:
         condition: service_healthy
     environment:
       - TZ=${TZ}
@@ -69,9 +79,9 @@ services:
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:latest
     container_name: prowlarr
-    network_mode: "service:gluetun"
+    network_mode: "service:vpn"
     depends_on:
-      gluetun:
+      vpn:
         condition: service_healthy
     environment:
       - PUID=${PUID}
@@ -84,9 +94,9 @@ services:
   sonarr:
     image: lscr.io/linuxserver/sonarr:latest
     container_name: sonarr
-    network_mode: "service:gluetun"
+    network_mode: "service:vpn"
     depends_on:
-      gluetun:
+      vpn:
         condition: service_healthy
     environment:
       - PUID=${PUID}
@@ -101,9 +111,9 @@ services:
   radarr:
     image: lscr.io/linuxserver/radarr:latest
     container_name: radarr
-    network_mode: "service:gluetun"
+    network_mode: "service:vpn"
     depends_on:
-      gluetun:
+      vpn:
         condition: service_healthy
     environment:
       - PUID=${PUID}
@@ -115,27 +125,14 @@ services:
       - ./media/downloads:/downloads
     restart: unless-stopped
 
-  homepage:
-    image: ghcr.io/gethomepage/homepage:latest
-    container_name: homepage
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./config/homepage:/app/config
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    environment:
-      - TZ=${TZ}
-      - HOMEPAGE_VAR_JELLYFIN_API_KEY=${JELLYFIN_API_KEY}
-      - HOMEPAGE_VAR_SEERR_API_KEY=${SEERR_API_KEY}
-      - HOMEPAGE_VAR_QBITTORRENT_PASSWORD=${QBITTORRENT_PASSWORD}
-      - HOMEPAGE_VAR_SONARR_API_KEY=${SONARR_API_KEY}
-      - HOMEPAGE_VAR_RADARR_API_KEY=${RADARR_API_KEY}
-      - HOMEPAGE_VAR_PROWLARR_API_KEY=${PROWLARR_API_KEY}
-    restart: unless-stopped
+  # --- Public network services ---
+  # These are on the media network and not routed through the VPN.
 
   jellyfin:
     image: lscr.io/linuxserver/jellyfin:latest
     container_name: jellyfin
+    networks:
+      - media
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -151,10 +148,69 @@ services:
   seerr:
     image: ghcr.io/seerr-team/seerr:latest
     container_name: seerr
+    networks:
+      - media
     environment:
       - TZ=${TZ}
     volumes:
       - ./config/seerr:/app/config
     ports:
       - "5055:5055"
+    restart: unless-stopped
+
+  maintainerr:
+    image: ghcr.io/maintainerr/maintainerr:latest
+    container_name: maintainerr
+    networks:
+      - media
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ./config/maintainerr:/opt/data
+    ports:
+      - "6246:6246"
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    networks:
+      - media
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    restart: unless-stopped
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    networks:
+      - media
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./config/portainer:/data
+    restart: unless-stopped
+
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest
+    container_name: homepage
+    networks:
+      - media
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./config/homepage:/app/config
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - TZ=${TZ}
+      - HOMEPAGE_ALLOWED_HOSTS=192.168.0.181:3000
+      - HOMEPAGE_VAR_JELLYFIN_API_KEY=${JELLYFIN_API_KEY}
+      - HOMEPAGE_VAR_SEERR_API_KEY=${SEERR_API_KEY}
+      - HOMEPAGE_VAR_QBITTORRENT_PASSWORD=${QBITTORRENT_PASSWORD}
+      - HOMEPAGE_VAR_SONARR_API_KEY=${SONARR_API_KEY}
+      - HOMEPAGE_VAR_RADARR_API_KEY=${RADARR_API_KEY}
+      - HOMEPAGE_VAR_PROWLARR_API_KEY=${PROWLARR_API_KEY}
+      - HOMEPAGE_VAR_PORTAINER_API_KEY=${PORTAINER_API_KEY}
     restart: unless-stopped
