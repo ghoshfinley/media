@@ -3,6 +3,10 @@ networks:
     driver: bridge
   # VPN-isolated services use network_mode: "service:vpn" instead of this network
 
+volumes:
+  netdata_lib:
+  netdata_cache:
+
 services:
   vpn:
     image: ghcr.io/qdm12/gluetun:latest
@@ -171,6 +175,34 @@ services:
       - "6246:6246"
     restart: unless-stopped
 
+  netdata:
+    image: netdata/netdata:latest
+    container_name: netdata
+    hostname: nookie
+    networks:
+      - media
+    ports:
+      - "19999:19999"
+    cap_add:
+      - SYS_PTRACE
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    volumes:
+      - ./config/netdata:/etc/netdata
+      - netdata_lib:/var/lib/netdata
+      - netdata_cache:/var/cache/netdata
+      - /etc/passwd:/host/etc/passwd:ro
+      - /etc/group:/host/etc/group:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/os-release:/host/etc/os-release:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - TZ=${TZ}
+    restart: unless-stopped
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared
@@ -179,18 +211,6 @@ services:
     command: tunnel --no-autoupdate run
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
-    restart: unless-stopped
-
-  portainer:
-    image: portainer/portainer-ce:latest
-    container_name: portainer
-    networks:
-      - media
-    ports:
-      - "9000:9000"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./config/portainer:/data
     restart: unless-stopped
 
   homepage:
@@ -212,5 +232,5 @@ services:
       - HOMEPAGE_VAR_SONARR_API_KEY=${SONARR_API_KEY}
       - HOMEPAGE_VAR_RADARR_API_KEY=${RADARR_API_KEY}
       - HOMEPAGE_VAR_PROWLARR_API_KEY=${PROWLARR_API_KEY}
-      - HOMEPAGE_VAR_PORTAINER_API_KEY=${PORTAINER_API_KEY}
+
     restart: unless-stopped

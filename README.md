@@ -10,6 +10,7 @@ A self-hosted media stack built on Docker Compose. Users request content through
 | Seerr | `seerr:5055` | https://request.finleyghosh.com | Request UI |
 | Homepage | `homepage:3000` | — | Dashboard |
 | Maintainerr | `maintainerr:6246` | — | Media cleanup rules |
+| Netdata | `netdata:19999` | — | System monitoring |
 | Sonarr | `vpn:8989` | — | TV automation |
 | Radarr | `vpn:7878` | — | Movie automation |
 | Prowlarr | `vpn:9696` | — | Indexer management |
