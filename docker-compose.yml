@@ -129,6 +129,26 @@ services:
       - ./media/downloads:/downloads
     restart: unless-stopped
 
+  recyclarr:
+    image: ghcr.io/recyclarr/recyclarr:latest
+    container_name: recyclarr
+    # No PUID/PGID support — set the run-as user directly
+    user: "${PUID}:${PGID}"
+    # Share the VPN namespace so localhost:7878 reaches Radarr (same as the arr apps)
+    network_mode: "service:vpn"
+    depends_on:
+      vpn:
+        condition: service_healthy
+    environment:
+      - TZ=${TZ}
+      - CRON_SCHEDULE=@daily
+      - RADARR_API_KEY=${RADARR_API_KEY}
+      - SONARR_API_KEY=${SONARR_API_KEY}
+    volumes:
+      - ./config/recyclarr:/config            # app data / cached TRaSH guides (gitignored)
+      - ./recyclarr.yml:/config/recyclarr.yml:ro  # tracked config from repo root
+    restart: unless-stopped
+
   # --- Public network services ---
   # These are on the media network and not routed through the VPN.
 

@@ -1,0 +1,321 @@
+# =============================================================================
+# Recyclarr configuration for Radarr + Sonarr — tuned for DIRECT PLAY on Jellyfin
+# =============================================================================
+# Goal: prefer releases that Jellyfin clients (TVs, phones, browsers, Chromecast)
+# can play WITHOUT transcoding. Custom-format regex comes from the TRaSH guides
+# (referenced by trash_id, so it stays community-maintained); only the SCORES
+# below are ours, weighted for compatibility instead of peak quality.
+#
+# How the scoring works:
+#   + Rewarded   : AAC, AC3 (DD), E-AC3 (DD+), DD+ Atmos  -> direct-play audio
+#   - Penalised  : TrueHD/Atmos, DTS / DTS-HD / DTS-X, FLAC, PCM, Opus, MP3,
+#                  and x265 at 1080p  -> commonly force a transcode
+#   - Rejected   : BR-DISK, LQ junk  -> score below min_format_score, never grabbed
+#
+# min_format_score is -1000: lossless-audio releases are NOT banned (Jellyfin can
+# cheaply audio-transcode if that's all that exists) but are strongly deprioritised,
+# so a compatible release always wins when one is available. Only the -10000 junk
+# formats fall below the gate and get rejected outright.
+#
+# API keys are read from RADARR_API_KEY / SONARR_API_KEY env vars (never hardcoded).
+# Sonarr uses its own trash_ids (different hashes from Radarr) and its own quality
+# names (e.g. "Bluray-1080p Remux"); the scoring philosophy is identical.
+# Apply both with: recyclarr sync
+# -----------------------------------------------------------------------------
+
+radarr:
+  movies:
+    base_url: http://localhost:7878
+    api_key: !env_var RADARR_API_KEY
+
+    include:
+      # Recommended movie file-size limits (harmless, keeps Radarr's quality defs sane)
+      - template: radarr-quality-definition-movie
+
+    quality_profiles:
+      # Profile 1: 1080p preferred, 720p fallback
+      - name: HD Direct Play
+        reset_unmatched_scores:
+          enabled: true
+        upgrade:
+          allowed: true
+          until_quality: 1080p
+          until_score: 10000
+        min_format_score: -1000
+        quality_sort: top
+        qualities:
+          - name: 1080p
+            qualities:
+              - Remux-1080p
+              - Bluray-1080p
+              - WEBDL-1080p
+              - WEBRip-1080p
+              - HDTV-1080p
+          - name: 720p
+            qualities:
+              - Bluray-720p
+              - WEBDL-720p
+              - WEBRip-720p
+              - HDTV-720p
+
+      # Profile 2: 2160p preferred, 1080p fallback (big screen)
+      - name: 4K Direct Play
+        reset_unmatched_scores:
+          enabled: true
+        upgrade:
+          allowed: true
+          until_quality: 2160p
+          until_score: 10000
+        min_format_score: -1000
+        quality_sort: top
+        qualities:
+          - name: 2160p
+            qualities:
+              - Remux-2160p
+              - Bluray-2160p
+              - WEBDL-2160p
+              - WEBRip-2160p
+              - HDTV-2160p
+          - name: 1080p
+            qualities:
+              - Remux-1080p
+              - Bluray-1080p
+              - WEBDL-1080p
+              - WEBRip-1080p
+              - HDTV-1080p
+
+    custom_formats:
+      # --- Direct-play-friendly audio (rewarded) ----------------------------
+      - trash_ids:
+          - 185f1dd7264c4562b9022d963ac37424   # DD+  (E-AC-3)
+        assign_scores_to:
+          - name: HD Direct Play
+            score: 30
+          - name: 4K Direct Play
+            score: 30
+      - trash_ids:
+          - 240770601cc226190c367ef59aba7463   # AAC
+          - c2998bd0d90ed5621d8df281e839436e   # DD   (AC-3 / Dolby Digital)
+        assign_scores_to:
+          - name: HD Direct Play
+            score: 25
+          - name: 4K Direct Play
+            score: 25
+      - trash_ids:
+          - 1af239278386be2919e1bcee0bde047e   # DD+ ATMOS
+        assign_scores_to:
+          - name: HD Direct Play
+            score: 20
+          - name: 4K Direct Play
+            score: 20
+
+      # --- Audio that usually forces a transcode (penalised) ----------------
+      - trash_ids:
+          - 6ba9033150e7896bdc9ec4b44f2b230f   # MP3
+        assign_scores_to:
+          - name: HD Direct Play
+            score: -20
+          - name: 4K Direct Play
+            score: -20
+      - trash_ids:
+          - 1c1a4c5e823891c75bc50380a6866f73   # DTS
+          - a061e2e700f81932daf888599f8a8273   # Opus
+        assign_scores_to:
+          - name: HD Direct Play
+            score: -40
+          - name: 4K Direct Play
+            score: -40
+      - trash_ids:
+          - 417804f7f2c4308c1f4c5d380d4c4475   # ATMOS (undefined base codec)
+          - f9f847ac70a0af62ea4a08280b859636   # DTS-ES
+        assign_scores_to:
+          - name: HD Direct Play
+            score: -50
+          - name: 4K Direct Play
+            score: -50
+      - trash_ids:
+          - 8e109e50e0a0b83a5098b056e13bf6db   # DTS-HD HRA
+          - a570d4a0e56a2874b64e5bfa55202a1b   # FLAC
+          - e7c2fcae07cbada050a0af3357491d7b   # PCM
+        assign_scores_to:
+          - name: HD Direct Play
+            score: -80
+          - name: 4K Direct Play
+            score: -80
+      - trash_ids:
+          - 3cafb66171b47f226146a0770576870f   # TrueHD
+          - 496f355514737f7d83bf7aa4d24f8169   # TrueHD ATMOS
+          - dcf3ec6938fa32445f590a4da84256cd   # DTS-HD MA
+          - 2f22d89048b01681dde8afe203bf2e95   # DTS-X
+        assign_scores_to:
+          - name: HD Direct Play
+            score: -100
+          - name: 4K Direct Play
+            score: -100
+
+      # --- Video codec: discourage HEVC at 1080p (older-client compatibility) ---
+      # Only applied to the HD profile; at 2160p HEVC is the norm and expected.
+      - trash_ids:
+          - dc98083864ea246d05a42df0d05f81cc   # x265 (HD)
+        assign_scores_to:
+          - name: HD Direct Play
+            score: -60
+
+      # --- Junk: scored below min_format_score so it's never grabbed ---------
+      - trash_ids:
+          - ed38b889b31be83fda192888e2286d83   # BR-DISK (disc image, can't direct play)
+          - 90a6f9a284dff5103f6346090e6280c8   # LQ
+          - e204b80c87be9497a8a6eaff48f72905   # LQ (Release Title)
+        assign_scores_to:
+          - name: HD Direct Play
+            score: -10000
+          - name: 4K Direct Play
+            score: -10000
+
+sonarr:
+  tv:
+    base_url: http://localhost:8989
+    api_key: !env_var SONARR_API_KEY
+
+    include:
+      # Recommended episode file-size limits
+      - template: sonarr-quality-definition-series
+
+    quality_profiles:
+      # Profile 1: 1080p preferred, 720p fallback
+      - name: HD Direct Play
+        reset_unmatched_scores:
+          enabled: true
+        upgrade:
+          allowed: true
+          until_quality: 1080p
+          until_score: 10000
+        min_format_score: -1000
+        quality_sort: top
+        qualities:
+          - name: 1080p
+            qualities:
+              - Bluray-1080p Remux
+              - Bluray-1080p
+              - WEBDL-1080p
+              - WEBRip-1080p
+              - HDTV-1080p
+          - name: 720p
+            qualities:
+              - Bluray-720p
+              - WEBDL-720p
+              - WEBRip-720p
+              - HDTV-720p
+
+      # Profile 2: 2160p preferred, 1080p fallback (big screen)
+      - name: 4K Direct Play
+        reset_unmatched_scores:
+          enabled: true
+        upgrade:
+          allowed: true
+          until_quality: 2160p
+          until_score: 10000
+        min_format_score: -1000
+        quality_sort: top
+        qualities:
+          - name: 2160p
+            qualities:
+              - Bluray-2160p Remux
+              - Bluray-2160p
+              - WEBDL-2160p
+              - WEBRip-2160p
+              - HDTV-2160p
+          - name: 1080p
+            qualities:
+              - Bluray-1080p Remux
+              - Bluray-1080p
+              - WEBDL-1080p
+              - WEBRip-1080p
+              - HDTV-1080p
+
+    custom_formats:
+      # --- Direct-play-friendly audio (rewarded) ----------------------------
+      - trash_ids:
+          - 63487786a8b01b7f20dd2bc90dd4a477   # DD+  (E-AC-3)
+        assign_scores_to:
+          - name: HD Direct Play
+            score: 30
+          - name: 4K Direct Play
+            score: 30
+      - trash_ids:
+          - a50b8a0c62274a7c38b09a9619ba9d86   # AAC
+          - dbe00161b08a25ac6154c55f95e6318d   # DD   (AC-3 / Dolby Digital)
+        assign_scores_to:
+          - name: HD Direct Play
+            score: 25
+          - name: 4K Direct Play
+            score: 25
+      - trash_ids:
+          - 4232a509ce60c4e208d13825b7c06264   # DD+ ATMOS
+        assign_scores_to:
+          - name: HD Direct Play
+            score: 20
+          - name: 4K Direct Play
+            score: 20
+
+      # --- Audio that usually forces a transcode (penalised) ----------------
+      - trash_ids:
+          - 3e8b714263b26f486972ee1e0fe7606c   # MP3
+        assign_scores_to:
+          - name: HD Direct Play
+            score: -20
+          - name: 4K Direct Play
+            score: -20
+      - trash_ids:
+          - 5964f2a8b3be407d083498e4459d05d0   # DTS
+          - 28f6ef16d61e2d1adfce3156ed8257e3   # Opus
+        assign_scores_to:
+          - name: HD Direct Play
+            score: -40
+          - name: 4K Direct Play
+            score: -40
+      - trash_ids:
+          - b6fbafa7942952a13e17e2b1152b539a   # ATMOS (undefined base codec)
+          - c1a25cd67b5d2e08287c957b1eb903ec   # DTS-ES
+        assign_scores_to:
+          - name: HD Direct Play
+            score: -50
+          - name: 4K Direct Play
+            score: -50
+      - trash_ids:
+          - cfa5fbd8f02a86fc55d8d223d06a5e1f   # DTS-HD HRA
+          - 851bd64e04c9374c51102be3dd9ae4cc   # FLAC
+          - 30f70576671ca933adbdcfc736a69718   # PCM
+        assign_scores_to:
+          - name: HD Direct Play
+            score: -80
+          - name: 4K Direct Play
+            score: -80
+      - trash_ids:
+          - 1808e4b9cee74e064dfae3f1db99dbfe   # TrueHD
+          - 0d7824bb924701997f874e7ff7d4844a   # TrueHD ATMOS
+          - c429417a57ea8c41d57e6990a8b0033f   # DTS-HD MA
+          - 9d00418ba386a083fbf4d58235fc37ef   # DTS-X
+        assign_scores_to:
+          - name: HD Direct Play
+            score: -100
+          - name: 4K Direct Play
+            score: -100
+
+      # --- Video codec: discourage HEVC at 1080p (older-client compatibility) ---
+      - trash_ids:
+          - 47435ece6b99a0b477caf360e79ba0bb   # x265 (HD)
+        assign_scores_to:
+          - name: HD Direct Play
+            score: -60
+
+      # --- Junk: scored below min_format_score so it's never grabbed ---------
+      - trash_ids:
+          - 85c61753df5da1fb2aab6f2a47426b09   # BR-DISK
+          - 9c11cd3f07101cdba90a2d81cf0e56b4   # LQ
+          - e2315f990da2e2cbfc9fa5b7a6fcfe48   # LQ (Release Title)
+        assign_scores_to:
+          - name: HD Direct Play
+            score: -10000
+          - name: 4K Direct Play
+            score: -10000
