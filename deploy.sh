@@ -8,6 +8,7 @@ echo "==> Syncing files to $REMOTE:$REMOTE_DIR"
 
 rsync -av --checksum \
   docker-compose.yml \
+  recyclarr.yml \
   README.md \
   "$REMOTE:$REMOTE_DIR/"
 

@@ -34,6 +34,7 @@ services:
       - SERVER_COUNTRIES=${VPN_SERVER_COUNTRIES}
       - BLOCK_IPV6=on
       - UPDATER_PERIOD=24h
+      - VPN_PORT_FORWARDING=on
       - HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE={"auth":"none"}
       - TZ=${TZ}
     volumes:
@@ -66,7 +67,53 @@ services:
       - QBT_PREFERENCES__WebUI__CSRFProtection=false
     volumes:
       - ./config/qbittorrent:/config
-      - ./media/downloads:/downloads
+      - ./media:/data
+    restart: unless-stopped
+
+  # Watches gluetun for tunnel (re)connects. On each one it restarts qBittorrent
+  # (libtorrent wedges on the stale tun0 after a VPN flap) and pushes the new
+  # ProtonVPN forwarded port into qBittorrent's listen port. Not in the VPN
+  # namespace — it drives the other containers via the Docker socket.
+  qbt-healer:
+    image: docker:cli
+    container_name: qbt-healer
+    network_mode: none
+    depends_on:
+      - vpn
+      - qbittorrent
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        sync_port() {
+          i=0
+          while [ $$i -lt 12 ]; do
+            port=$$(docker exec vpn cat /tmp/gluetun/forwarded_port 2>/dev/null)
+            if [ -n "$$port" ] && [ "$$port" != "0" ]; then
+              docker exec qbittorrent curl -s -m 10 \
+                -d "json={\"listen_port\":$$port,\"random_port\":false,\"upnp\":false}" \
+                http://127.0.0.1:8080/api/v2/app/setPreferences >/dev/null 2>&1 \
+                && echo "[qbt-healer] set listen_port=$$port" && return 0
+            fi
+            i=$$((i+1)); sleep 5
+          done
+          echo "[qbt-healer] no forwarded port available yet"
+        }
+        sleep 20
+        echo "[qbt-healer] initial port sync"
+        sync_port
+        docker logs -f --since 0m vpn 2>&1 | while read l; do
+          case "$$l" in
+            *"wireguard setup is complete"*)
+              echo "[qbt-healer] VPN tunnel up — restarting qbittorrent"
+              docker restart qbittorrent >/dev/null
+              sleep 15
+              sync_port
+              ;;
+          esac
+        done
     restart: unless-stopped
 
   flaresolverr:
@@ -108,8 +155,7 @@ services:
       - TZ=${TZ}
     volumes:
       - ./config/sonarr:/config
-      - ./media/tv:/tv
-      - ./media/downloads:/downloads
+      - ./media:/data
     restart: unless-stopped
 
   radarr:
@@ -125,8 +171,7 @@ services:
       - TZ=${TZ}
     volumes:
       - ./config/radarr:/config
-      - ./media/movies:/movies
-      - ./media/downloads:/downloads
+      - ./media:/data
     restart: unless-stopped
 
   recyclarr:

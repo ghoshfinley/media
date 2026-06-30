@@ -28,9 +28,9 @@ radarr:
     base_url: http://localhost:7878
     api_key: !env_var RADARR_API_KEY
 
-    include:
-      # Recommended movie file-size limits (harmless, keeps Radarr's quality defs sane)
-      - template: radarr-quality-definition-movie
+    # Recommended movie file-size limits, pulled from the TRaSH guides
+    quality_definition:
+      type: movie
 
     quality_profiles:
       # Profile 1: 1080p preferred, 720p fallback
@@ -177,9 +177,9 @@ sonarr:
     base_url: http://localhost:8989
     api_key: !env_var SONARR_API_KEY
 
-    include:
-      # Recommended episode file-size limits
-      - template: sonarr-quality-definition-series
+    # Recommended episode file-size limits, pulled from the TRaSH guides
+    quality_definition:
+      type: series
 
     quality_profiles:
       # Profile 1: 1080p preferred, 720p fallback
