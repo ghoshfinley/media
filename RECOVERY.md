@@ -45,9 +45,12 @@ How this stack is backed up and how to rebuild it on a fresh machine.
    30 4 * * * /home/user/media/scripts/backup-config.sh  >> /home/user/media/scripts/backup.log 2>&1
    */3 * * * * /home/user/media/scripts/disk-guard.sh     >> /home/user/media/scripts/disk-guard.log 2>&1
    ```
-   (`disk-guard.sh` pauses qBittorrent downloads if free space on `/` drops below 25 GB and
-   resumes above 50 GB — prevents a full disk from taking the server down. Thresholds are
-   env-overridable: `LOW_GB` / `OK_GB`.)
+   (`disk-guard.sh` protects `/` in two stages: **pauses** qBittorrent downloads below 25 GB
+   free (resumes above 50 GB); and if it drops below 15 GB, **reclaims space by deleting
+   seeding torrents** — highest ratio first, and *only* ones already imported by Radarr/Sonarr
+   (media is safe on the Drobo, we lose only the local seed) — until 60 GB free. A torrent
+   still in an *arr queue is protected. Env-overridable: `LOW_GB` `OK_GB` `KILL_GB`
+   `KILL_TARGET_GB` `DRY_RUN`.)
 
 ## Change log — 2026-07-04 (Drobo migration + fixes)
 
