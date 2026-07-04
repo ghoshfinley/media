@@ -22,13 +22,13 @@ if [ "$free_gb" -lt "$LOW_GB" ] && [ ! -f "$STATE" ]; then
   hashes=$(curl -s -b "$CJ" "$Q/api/v2/torrents/info?filter=downloading" \
            | python3 -c 'import sys,json;print("|".join(t["hash"] for t in json.load(sys.stdin)))')
   if [ -n "$hashes" ]; then
-    curl -s -b "$CJ" "$Q/api/v2/torrents/pause" --data "hashes=$hashes" >/dev/null
+    curl -s -b "$CJ" "$Q/api/v2/torrents/stop" --data "hashes=$hashes" >/dev/null
     printf '%s\n' "$hashes" > "$STATE"
     n=$(printf '%s' "$hashes" | tr '|' '\n' | grep -c .)
     echo "$(date '+%F %T')  LOW ${free_gb}G < ${LOW_GB}G — paused $n download(s)"
   fi
 elif [ "$free_gb" -ge "$OK_GB" ] && [ -f "$STATE" ]; then
-  curl -s -b "$CJ" "$Q/api/v2/torrents/resume" --data "hashes=$(cat "$STATE")" >/dev/null
+  curl -s -b "$CJ" "$Q/api/v2/torrents/start" --data "hashes=$(cat "$STATE")" >/dev/null
   rm -f "$STATE"
   echo "$(date '+%F %T')  OK ${free_gb}G ≥ ${OK_GB}G — resumed downloads"
 fi
