@@ -159,7 +159,7 @@ radarr:
           - dc98083864ea246d05a42df0d05f81cc   # x265 (HD)
         assign_scores_to:
           - name: HD Direct Play
-            score: -60
+            score: -500   # strong penalty: prefer x264 for browser direct-play; x265 only as last resort
 
       # --- Junk: scored below min_format_score so it's never grabbed ---------
       - trash_ids:
@@ -307,7 +307,7 @@ sonarr:
           - 47435ece6b99a0b477caf360e79ba0bb   # x265 (HD)
         assign_scores_to:
           - name: HD Direct Play
-            score: -60
+            score: -500   # strong penalty: prefer x264 for browser direct-play; x265 only as last resort
 
       # --- Junk: scored below min_format_score so it's never grabbed ---------
       - trash_ids:

@@ -52,6 +52,10 @@ echo ""
 echo "==> Restarting stack on $REMOTE"
 ssh "$REMOTE" "cd $REMOTE_DIR && docker compose up -d"
 
+# recyclarr.yml is bind-mounted as a single file; rsync replaces the inode, so the
+# running container keeps reading the old copy until restarted. Restart to pick it up.
+ssh "$REMOTE" "cd $REMOTE_DIR && docker restart recyclarr >/dev/null 2>&1 || true"
+
 if [ "$SKIP_JELLYFIN" = true ]; then
   echo ""
   echo "  NOTE: Jellyfin was not updated. Re-run deploy when no streams are active to apply any Jellyfin updates."
