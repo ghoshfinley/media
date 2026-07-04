@@ -40,8 +40,14 @@ How this stack is backed up and how to rebuild it on a fresh machine.
    cd ~/media && tar xzf /path/to/media-config-YYYYMMDD-HHMMSS.tar.gz
    ```
 6. **Launch:** `docker compose up -d` (or run `./deploy.sh` from your Mac).
-7. **Re-enable backups:** `crontab -e` →
-   `30 4 * * * /home/user/media/scripts/backup-config.sh >> /home/user/media/scripts/backup.log 2>&1`
+7. **Re-enable cron jobs:** `crontab -e` →
+   ```
+   30 4 * * * /home/user/media/scripts/backup-config.sh  >> /home/user/media/scripts/backup.log 2>&1
+   */3 * * * * /home/user/media/scripts/disk-guard.sh     >> /home/user/media/scripts/disk-guard.log 2>&1
+   ```
+   (`disk-guard.sh` pauses qBittorrent downloads if free space on `/` drops below 25 GB and
+   resumes above 50 GB — prevents a full disk from taking the server down. Thresholds are
+   env-overridable: `LOW_GB` / `OK_GB`.)
 
 ## Change log — 2026-07-04 (Drobo migration + fixes)
 
