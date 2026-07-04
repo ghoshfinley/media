@@ -46,7 +46,6 @@ radarr:
         qualities:
           - name: 1080p
             qualities:
-              - Remux-1080p
               - Bluray-1080p
               - WEBDL-1080p
               - WEBRip-1080p
@@ -78,7 +77,6 @@ radarr:
               - HDTV-2160p
           - name: 1080p
             qualities:
-              - Remux-1080p
               - Bluray-1080p
               - WEBDL-1080p
               - WEBRip-1080p
@@ -195,7 +193,6 @@ sonarr:
         qualities:
           - name: 1080p
             qualities:
-              - Bluray-1080p Remux
               - Bluray-1080p
               - WEBDL-1080p
               - WEBRip-1080p
@@ -227,7 +224,6 @@ sonarr:
               - HDTV-2160p
           - name: 1080p
             qualities:
-              - Bluray-1080p Remux
               - Bluray-1080p
               - WEBDL-1080p
               - WEBRip-1080p
