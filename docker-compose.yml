@@ -6,6 +6,20 @@ networks:
 volumes:
   netdata_lib:
   netdata_cache:
+  # Media library lives on the Drobo NAS (SMB1 / Samba 3.4.4), mounted per-container
+  # via CIFS so an unreachable Drobo fails loudly instead of exposing an empty library.
+  drobo_tv:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//192.168.0.199/Music/media/tv"
+      o: "guest,vers=1.0,uid=${PUID},gid=${PGID},file_mode=0664,dir_mode=0775,iocharset=utf8"
+  drobo_movies:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//192.168.0.199/Music/media/movies"
+      o: "guest,vers=1.0,uid=${PUID},gid=${PGID},file_mode=0664,dir_mode=0775,iocharset=utf8"
 
 services:
   vpn:
@@ -67,7 +81,7 @@ services:
       - QBT_PREFERENCES__WebUI__CSRFProtection=false
     volumes:
       - ./config/qbittorrent:/config
-      - ./media:/data
+      - ./media/downloads:/data/downloads
     restart: unless-stopped
 
   # Watches gluetun for tunnel (re)connects. On each one it restarts qBittorrent
@@ -155,7 +169,8 @@ services:
       - TZ=${TZ}
     volumes:
       - ./config/sonarr:/config
-      - ./media:/data
+      - ./media/downloads:/data/downloads
+      - drobo_tv:/data/tv
     restart: unless-stopped
 
   radarr:
@@ -171,7 +186,8 @@ services:
       - TZ=${TZ}
     volumes:
       - ./config/radarr:/config
-      - ./media:/data
+      - ./media/downloads:/data/downloads
+      - drobo_movies:/data/movies
     restart: unless-stopped
 
   recyclarr:
@@ -208,8 +224,8 @@ services:
       - TZ=${TZ}
     volumes:
       - ./config/jellyfin:/config
-      - ./media/tv:/data/tvshows
-      - ./media/movies:/data/movies
+      - drobo_tv:/data/tvshows
+      - drobo_movies:/data/movies
     ports:
       - "8096:8096"
     devices:

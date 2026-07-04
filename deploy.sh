@@ -10,6 +10,8 @@ rsync -av --checksum \
   docker-compose.yml \
   recyclarr.yml \
   README.md \
+  RECOVERY.md \
+  scripts \
   "$REMOTE:$REMOTE_DIR/"
 
 rsync -av --checksum --delete \
