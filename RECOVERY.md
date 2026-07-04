@@ -19,7 +19,11 @@ How this stack is backed up and how to rebuild it on a fresh machine.
   It intentionally includes the Sonarr/Radarr/Prowlarr built-in `Backups/` zips, which are
   consistent DB snapshots — use those if a hot-copied sqlite db ever looks off.
 - **`scripts/pull-backup.sh`** (run on your Mac) rsyncs those archives to `~/media-backups`,
-  so a copy also survives loss of the Drobo.
+  so a copy also survives loss of the Drobo. Automated via the launchd agent
+  `scripts/com.finley.media-backup-pull.plist` (daily 12:30, or on next wake) — install with
+  `cp scripts/com.finley.media-backup-pull.plist ~/Library/LaunchAgents/ && launchctl load -w ~/Library/LaunchAgents/com.finley.media-backup-pull.plist`.
+  Note: `~/media-backups` is a `--delete` mirror of the Drobo, so nothing else should live
+  there (the agent logs to `~/Library/Logs/media-backup-pull.log`).
 
 ## Rebuild on a fresh machine
 
