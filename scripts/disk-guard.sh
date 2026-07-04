@@ -72,6 +72,7 @@ for t in sorted(json.load(sys.stdin), key=lambda x: x["ratio"], reverse=True):
     print(t["hash"].upper(), t["hash"], round(t["ratio"], 2), round(t["size"]/1e9, 1),
           t["name"][:45].replace(" ", "_"))
 ')
+  deleted_any=0
   while read -r HU h ratio sizegb name; do
     [ -z "${h:-}" ] && continue
     free=$(freegb)
@@ -82,9 +83,24 @@ for t in sorted(json.load(sys.stdin), key=lambda x: x["ratio"], reverse=True):
     else
       curl -s -b "$CJ" "$Q/api/v2/torrents/delete" --data "hashes=$h&deleteFiles=true" >/dev/null
       echo "$(date '+%F %T')  CRITICAL ${free}G<${KILL_GB}G — deleted imported seed ratio=$ratio ${sizegb}G $name"
+      deleted_any=1
       sleep 2
     fi
   done <<EOF_SEEDS
 $seeds
 EOF_SEEDS
+
+  # Still critical but nothing was reclaimable (every seed is awaiting import):
+  # hold downloads paused so Radarr/Sonarr can catch up on imports — then a later
+  # run deletes those seeds once they're imported.
+  free=$(freegb)
+  if [ -z "$DRY_RUN" ] && [ "$free" -lt "$KILL_GB" ] && [ "$deleted_any" -eq 0 ]; then
+    dl=$(curl -s -b "$CJ" "$Q/api/v2/torrents/info?filter=downloading" \
+         | python3 -c 'import sys,json;print("|".join(t["hash"] for t in json.load(sys.stdin)))')
+    if [ -n "$dl" ]; then
+      curl -s -b "$CJ" "$Q/api/v2/torrents/stop" --data "hashes=$dl" >/dev/null
+      printf '%s\n' "$dl" > "$STATE"
+    fi
+    echo "$(date '+%F %T')  CRITICAL ${free}G — all seeds awaiting import; holding downloads for Radarr/Sonarr to import (seeds become reclaimable once imported)"
+  fi
 fi
