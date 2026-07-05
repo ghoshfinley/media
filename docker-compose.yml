@@ -4,8 +4,6 @@ networks:
   # VPN-isolated services use network_mode: "service:vpn" instead of this network
 
 volumes:
-  netdata_lib:
-  netdata_cache:
   # Media library lives on the Drobo NAS (SMB1 / Samba 3.4.4), mounted per-container
   # via CIFS so an unreachable Drobo fails loudly instead of exposing an empty library.
   drobo_tv:
@@ -258,34 +256,6 @@ services:
       - ./config/maintainerr:/opt/data
     ports:
       - "6246:6246"
-    restart: unless-stopped
-
-  netdata:
-    image: netdata/netdata:latest
-    container_name: netdata
-    hostname: nookie
-    networks:
-      - media
-    ports:
-      - "19999:19999"
-    cap_add:
-      - SYS_PTRACE
-      - SYS_ADMIN
-    security_opt:
-      - apparmor:unconfined
-    volumes:
-      - ./config/netdata:/etc/netdata
-      - netdata_lib:/var/lib/netdata
-      - netdata_cache:/var/cache/netdata
-      - /etc/passwd:/host/etc/passwd:ro
-      - /etc/group:/host/etc/group:ro
-      - /etc/localtime:/etc/localtime:ro
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /etc/os-release:/host/etc/os-release:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    environment:
-      - TZ=${TZ}
     restart: unless-stopped
 
   cloudflared:
