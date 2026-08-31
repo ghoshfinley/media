@@ -1,25 +1,30 @@
 #!/bin/bash
-# Disk safety net for Nookie's root disk:
+# Disk safety net for Nookie's downloads disk (HDD-B, /mnt/downloads):
 #   1) pause qBittorrent downloads when free space is low (resume when recovered)
 #   2) if CRITICALLY low, reclaim space by deleting seeding torrents — highest ratio
 #      first (most "done" seeding), and ONLY ones already imported by Radarr/Sonarr.
 #      A torrent still in an *arr queue is downloading or awaiting import, so it's
-#      protected; only torrents absent from both queues (= imported, media safely on
-#      the Drobo) are deletable. We lose the local seed, never the media.
-# Runs from cron every few minutes. Env-overridable: LOW_GB OK_GB KILL_GB
-# KILL_TARGET_GB DRY_RUN.
+#      protected; only torrents absent from both queues (= imported, media already
+#      copied to the library disk /mnt/library) are deletable. We lose the local
+#      seed on HDD-B, never the library copy on HDD-A.
+# Runs from cron every few minutes. Env-overridable: GUARD_PATH LOW_GB OK_GB KILL_GB
+# KILL_TARGET_GB DRY_RUN. Deletions (but not pause/resume) push a Home Assistant
+# notification — see media_guard_health.yaml in the mono repo.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-LOW_GB=${LOW_GB:-25}                   # pause downloads below this
-OK_GB=${OK_GB:-50}                     # resume downloads above this
-KILL_GB=${KILL_GB:-15}                 # start deleting imported seeds below this
+GUARD_PATH=${GUARD_PATH:-/mnt/downloads}   # disk to watch (torrent downloads live here)
+LOW_GB=${LOW_GB:-40}                   # pause downloads below this (backstop once seeds exhausted)
+OK_GB=${OK_GB:-55}                     # resume downloads above this
+KILL_GB=${KILL_GB:-50}                 # 50G buffer: delete imported seeds when free drops below this
 KILL_TARGET_GB=${KILL_TARGET_GB:-60}   # delete seeds until free reaches this
 DRY_RUN=${DRY_RUN:-}                    # non-empty = log what would be deleted, don't delete
 STATE="$REPO/scripts/.disk-guard-paused"
 Q="http://localhost:8090"
+HA_URL="http://localhost:8123"
+notify() { curl -sf --max-time 5 -X POST -H 'Content-Type: application/json' -d "{\"key\":\"$1\",\"title\":\"$2\",\"message\":\"$3\"}" "$HA_URL/api/webhook/media_guard" >/dev/null || true; }
 
-freegb() { df -BG --output=avail / | tail -1 | tr -dc '0-9'; }
+freegb() { df -BG --output=avail "$GUARD_PATH" | tail -1 | tr -dc '0-9'; }
 free=$(freegb)
 
 PW=$(grep '^QBITTORRENT_PASSWORD' "$REPO/.env" | cut -d= -f2)
@@ -83,6 +88,8 @@ for t in sorted(json.load(sys.stdin), key=lambda x: x["ratio"], reverse=True):
     else
       curl -s -b "$CJ" "$Q/api/v2/torrents/delete" --data "hashes=$h&deleteFiles=true" >/dev/null
       echo "$(date '+%F %T')  CRITICAL ${free}G<${KILL_GB}G — deleted imported seed ratio=$ratio ${sizegb}G $name"
+      notify "diskguard_$(date +%s%N)" "Nookie: disk-guard reclaimed space" \
+        "Deleted seeding torrent to free space (${free}G < ${KILL_GB}G): $name (ratio $ratio, ${sizegb}G)"
       deleted_any=1
       sleep 2
     fi
