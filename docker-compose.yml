@@ -3,21 +3,11 @@ networks:
     driver: bridge
   # VPN-isolated services use network_mode: "service:vpn" instead of this network
 
-volumes:
-  # Media library lives on the Drobo NAS (SMB1 / Samba 3.4.4), mounted per-container
-  # via CIFS so an unreachable Drobo fails loudly instead of exposing an empty library.
-  drobo_tv:
-    driver: local
-    driver_opts:
-      type: cifs
-      device: "//192.168.0.199/Music/media/tv"
-      o: "guest,vers=1.0,uid=${PUID},gid=${PGID},file_mode=0664,dir_mode=0775,iocharset=utf8"
-  drobo_movies:
-    driver: local
-    driver_opts:
-      type: cifs
-      device: "//192.168.0.199/Music/media/movies"
-      o: "guest,vers=1.0,uid=${PUID},gid=${PGID},file_mode=0664,dir_mode=0775,iocharset=utf8"
+# Media library + downloads live on two local USB HDDs plugged into Nookie:
+#   /mnt/library   (HDD-A) -> movies + tv      — playback reads
+#   /mnt/downloads (HDD-B) -> torrent scratch  — random writes, kept off the library spindle
+# Split on purpose so torrent I/O never contends with playback; imports are copies, not
+# hardlinks. Mounted on the host via fstab (scripts/setup-media-hdds.sh); bind-mounted below.
 
 services:
   vpn:
@@ -79,16 +69,27 @@ services:
       - QBT_PREFERENCES__WebUI__CSRFProtection=false
     volumes:
       - ./config/qbittorrent:/config
-      - ./media/downloads:/data/downloads
+      - /mnt/downloads:/data/downloads
     restart: unless-stopped
 
-  # Watches gluetun for tunnel (re)connects. On each one it restarts qBittorrent
-  # (libtorrent wedges on the stale tun0 after a VPN flap) and pushes the new
-  # ProtonVPN forwarded port into qBittorrent's listen port. Not in the VPN
-  # namespace — it drives the other containers via the Docker socket.
+  # Polls gluetun's forwarded-port file directly every 60s rather than watching
+  # its logs for a reconnect message — a reconnect log line only fires on a full
+  # tunnel renegotiation, but the forwarded port can silently die (NAT-PMP lease
+  # expiring without a tunnel drop, as happened 2026-08-21 -> 2026-09-04, unnoticed
+  # for 2 weeks) with no such line ever logged. Polling the port file directly
+  # catches both cases the same way. On any port change: restarts every container
+  # sharing the VPN's network namespace (not just qBittorrent — they all go dark
+  # the same way when vpn's netns is torn down) then pushes the new port into
+  # qBittorrent. If the port stays down past RESTART_VPN_AFTER_MIN, restarts vpn
+  # itself to force a fresh negotiation. Notifies Home Assistant either way — a
+  # tunnel reset or an extended outage should never be silent. Not in the VPN
+  # namespace itself — it drives everything via the Docker socket, and routes
+  # its own HA calls through qBittorrent's container (which has curl and, via
+  # vpn's bridge network, a route to the host) since this container has none.
   qbt-healer:
     image: docker:cli
     container_name: qbt-healer
+    cpuset: "1-3"
     network_mode: none
     depends_on:
       - vpn
@@ -99,32 +100,69 @@ services:
       - /bin/sh
       - -c
       - |
-        sync_port() {
+        POLL=60
+        RESTART_VPN_AFTER_MIN=30
+        HA_URL="http://192.168.0.181:8123"
+        DEPENDENTS="qbittorrent sonarr radarr prowlarr flaresolverr recyclarr"
+        LAST_PORT=""
+        DOWN_SINCE=""
+
+        notify() {
+          docker exec qbittorrent curl -sf --max-time 5 -X POST -H 'Content-Type: application/json' \
+            -d "{\"key\":\"$$1\",\"title\":\"$$2\",\"message\":\"$$3\"}" \
+            "$$HA_URL/api/webhook/media_guard" >/dev/null 2>&1 || true
+        }
+        resolve() {
+          docker exec qbittorrent curl -sf --max-time 5 -X POST -H 'Content-Type: application/json' \
+            -d "{\"key\":\"$$1\"}" "$$HA_URL/api/webhook/media_guard_clear" >/dev/null 2>&1 || true
+        }
+
+        sync_and_restart() {
+          port="$$1"
+          for c in $$DEPENDENTS; do
+            docker restart "$$c" >/dev/null 2>&1
+          done
           i=0
           while [ $$i -lt 12 ]; do
-            port=$$(docker exec vpn cat /tmp/gluetun/forwarded_port 2>/dev/null)
-            if [ -n "$$port" ] && [ "$$port" != "0" ]; then
-              docker exec qbittorrent curl -s -m 10 \
-                -d "json={\"listen_port\":$$port,\"random_port\":false,\"upnp\":false}" \
-                http://127.0.0.1:8080/api/v2/app/setPreferences >/dev/null 2>&1 \
-                && echo "[qbt-healer] set listen_port=$$port" && return 0
-            fi
+            docker exec qbittorrent curl -s -m 5 http://127.0.0.1:8080/api/v2/app/version >/dev/null 2>&1 && break
             i=$$((i+1)); sleep 5
           done
-          echo "[qbt-healer] no forwarded port available yet"
+          docker exec qbittorrent curl -s -m 10 \
+            -d "json={\"listen_port\":$$port,\"random_port\":false,\"upnp\":false}" \
+            http://127.0.0.1:8080/api/v2/app/setPreferences >/dev/null 2>&1
+          echo "[qbt-healer] restarted ($$DEPENDENTS), set listen_port=$$port"
+          notify "vpn_resync" "Nookie: VPN reconnected" "New forwarded port $$port — restarted: $$DEPENDENTS"
         }
-        sleep 20
-        echo "[qbt-healer] initial port sync"
-        sync_port
-        docker logs -f --since 0m vpn 2>&1 | while read l; do
-          case "$$l" in
-            *"wireguard setup is complete"*)
-              echo "[qbt-healer] VPN tunnel up — restarting qbittorrent"
-              docker restart qbittorrent >/dev/null
-              sleep 15
-              sync_port
-              ;;
-          esac
+
+        echo "[qbt-healer] polling gluetun's forwarded port every $${POLL}s"
+        while true; do
+          port=$$(docker exec vpn cat /tmp/gluetun/forwarded_port 2>/dev/null)
+          if [ -n "$$port" ] && [ "$$port" != "0" ]; then
+            if [ -n "$$DOWN_SINCE" ]; then
+              echo "[qbt-healer] port forwarding recovered: $$port"
+              resolve vpn_port_down
+              DOWN_SINCE=""
+            fi
+            if [ "$$port" != "$$LAST_PORT" ]; then
+              sync_and_restart "$$port"
+              LAST_PORT="$$port"
+            fi
+          else
+            if [ -z "$$DOWN_SINCE" ]; then
+              DOWN_SINCE=$$(date +%s)
+              echo "[qbt-healer] port forwarding is down"
+              notify "vpn_port_down" "Nookie: VPN port forwarding DOWN" "gluetun has no forwarded port — thin-swarm downloads will stall. Will restart the vpn container after $${RESTART_VPN_AFTER_MIN}m if still down."
+            else
+              elapsed_min=$$(( ($$(date +%s) - DOWN_SINCE) / 60 ))
+              if [ "$$elapsed_min" -ge "$$RESTART_VPN_AFTER_MIN" ]; then
+                echo "[qbt-healer] port forwarding down $${elapsed_min}m — restarting vpn"
+                notify "vpn_port_down" "Nookie: VPN port forwarding still DOWN" "Down $${elapsed_min}m — restarting the vpn container to force a fresh negotiation"
+                docker restart vpn >/dev/null 2>&1
+                DOWN_SINCE=$$(date +%s)
+              fi
+            fi
+          fi
+          sleep "$$POLL"
         done
     restart: unless-stopped
 
@@ -167,8 +205,8 @@ services:
       - TZ=${TZ}
     volumes:
       - ./config/sonarr:/config
-      - ./media/downloads:/data/downloads
-      - drobo_tv:/data/tv
+      - /mnt/downloads:/data/downloads
+      - /mnt/library/tv:/data/tv
     restart: unless-stopped
 
   radarr:
@@ -184,8 +222,8 @@ services:
       - TZ=${TZ}
     volumes:
       - ./config/radarr:/config
-      - ./media/downloads:/data/downloads
-      - drobo_movies:/data/movies
+      - /mnt/downloads:/data/downloads
+      - /mnt/library/movies:/data/movies
     restart: unless-stopped
 
   recyclarr:
@@ -222,8 +260,8 @@ services:
       - TZ=${TZ}
     volumes:
       - ./config/jellyfin:/config
-      - drobo_tv:/data/tvshows
-      - drobo_movies:/data/movies
+      - /mnt/library/tv:/data/tvshows
+      - /mnt/library/movies:/data/movies
     ports:
       - "8096:8096"
     devices:
