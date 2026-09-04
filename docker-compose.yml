@@ -102,7 +102,11 @@ services:
       - |
         POLL=60
         RESTART_VPN_AFTER_MIN=30
-        HA_URL="http://192.168.0.181:8123"
+        # Not the host's LAN IP: a container can't hairpin back to the host's own
+        # external-facing address, but the bridge gateway routes to host-networked
+        # services (HA) fine. Stable for this compose project's network unless the
+        # network itself is recreated.
+        HA_URL="http://172.18.0.1:8123"
         DEPENDENTS="qbittorrent sonarr radarr prowlarr flaresolverr recyclarr"
         LAST_PORT=""
         DOWN_SINCE=""
