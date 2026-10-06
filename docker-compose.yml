@@ -116,10 +116,6 @@ services:
             -d "{\"key\":\"$$1\",\"title\":\"$$2\",\"message\":\"$$3\"}" \
             "$$HA_URL/api/webhook/media_guard" >/dev/null 2>&1 || true
         }
-        resolve() {
-          docker exec qbittorrent curl -sf --max-time 5 -X POST -H 'Content-Type: application/json' \
-            -d "{\"key\":\"$$1\"}" "$$HA_URL/api/webhook/media_guard_clear" >/dev/null 2>&1 || true
-        }
 
         sync_and_restart() {
           port="$$1"
@@ -144,7 +140,6 @@ services:
           if [ -n "$$port" ] && [ "$$port" != "0" ]; then
             if [ -n "$$DOWN_SINCE" ]; then
               echo "[qbt-healer] port forwarding recovered: $$port"
-              resolve vpn_port_down
               DOWN_SINCE=""
             fi
             if [ "$$port" != "$$LAST_PORT" ]; then
@@ -155,12 +150,11 @@ services:
             if [ -z "$$DOWN_SINCE" ]; then
               DOWN_SINCE=$$(date +%s)
               echo "[qbt-healer] port forwarding is down"
-              notify "vpn_port_down" "Nookie: VPN port forwarding DOWN" "gluetun has no forwarded port — thin-swarm downloads will stall. Will restart the vpn container after $${RESTART_VPN_AFTER_MIN}m if still down."
             else
               elapsed_min=$$(( ($$(date +%s) - DOWN_SINCE) / 60 ))
               if [ "$$elapsed_min" -ge "$$RESTART_VPN_AFTER_MIN" ]; then
                 echo "[qbt-healer] port forwarding down $${elapsed_min}m — restarting vpn"
-                notify "vpn_port_down" "Nookie: VPN port forwarding still DOWN" "Down $${elapsed_min}m — restarting the vpn container to force a fresh negotiation"
+                notify "vpn_port_down" "Nookie: VPN restarted" "Port forwarding was down $${elapsed_min}m — restarted the vpn container to force a fresh negotiation"
                 docker restart vpn >/dev/null 2>&1
                 DOWN_SINCE=$$(date +%s)
               fi
