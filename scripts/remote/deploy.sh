@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+# Runs from anywhere -- file paths below are relative to the repo root.
+cd "$(dirname "$0")/../.."
+
 REMOTE="nookie"
 REMOTE_DIR="~/media"
 
@@ -32,7 +35,7 @@ JELLYFIN_KEY=$(ssh "$REMOTE" "grep '^JELLYFIN_API_KEY' $REMOTE_DIR/.env | cut -d
 ACTIVE_STREAMS=$(ssh "$REMOTE" "curl -sf 'http://localhost:8096/Sessions?api_key=$JELLYFIN_KEY&activeWithinSeconds=30' 2>/dev/null | grep -c 'NowPlayingItem' || echo 0")
 
 if [ "$ACTIVE_STREAMS" -gt 0 ]; then
-  echo "  WARNING: $ACTIVE_STREAMS active stream(s) detected — skipping Jellyfin pull/restart"
+  echo "  WARNING: $ACTIVE_STREAMS active stream(s) detected -- skipping Jellyfin pull/restart"
   SKIP_JELLYFIN=true
 else
   echo "  No active streams"

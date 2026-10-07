@@ -17,7 +17,7 @@
     </dict>
     <key>RunAtLoad</key>
     <true/>
-    <!-- Log must live OUTSIDE ~/media-backups, which is a --delete mirror of the Drobo -->
+    <!-- Log must live OUTSIDE ~/media-backups, which is a --delete mirror of Nookie's backups -->
     <key>StandardOutPath</key>
     <string>/Users/finley/Library/Logs/media-backup-pull.log</string>
     <key>StandardErrorPath</key>
